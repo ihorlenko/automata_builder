@@ -1,10 +1,16 @@
-class DFA(NFA):
+class AutomatonInputError(Exception):
+    pass
+
+class DFA:
     class TransitionFunction:
         def __init__(self):
             self.__data = {}
 
         def __getitem__(self, item):
-            return self.__data[item]
+            if item in self.__data:
+                return self.__data[item]
+            else:
+                return dict()
 
         def __contains__(self, item):
             return item in self.__data
@@ -19,6 +25,8 @@ class DFA(NFA):
             state, symbol, next_state = transition.split('>')
             if state not in self.__data:
                 self.__data[state] = {}
+            if symbol in self.__data[state]:
+                raise AutomatonInputError("DFA mustn't contain non-deterministic transitions")
             self.__data[state][symbol] = next_state
 
     def __init__(self):
@@ -32,7 +40,8 @@ class DFA(NFA):
         return self.transition_function[item]
 
     def __repr__(self):
-        return f"States: {self.states}\n" \
+        return f"{type(self)}\n" \
+               f"States: {self.states}\n" \
                f"Start state: {self._start_state}\n" \
                f"Alphabet: {self.alphabet}\n" \
                f"Accept states: {self._accept_states}\n" \
@@ -59,6 +68,29 @@ class DFA(NFA):
             current_state = self.transition_function[current_state][symbol]
         return current_state in self.accept_states
 
+    def reverse(self):
+        enfa = eNFA()
+        enfa.alphabet = self.alphabet
+
+        terminal_state = f"q{len(self.states)}"
+        enfa.start_state = terminal_state
+        enfa.accept_states = {self.start_state}
+
+        for state in self.states:
+            for symbol, next_state in self.transition_function[state].items():
+                enfa.add_transition(f"{next_state}>{symbol}>{state}")
+            if state in self.accept_states:
+                enfa.add_epsilon_transition(terminal_state, state)
+
+        return enfa
+
+    def minimize(self):
+        r = self.reverse()
+        dr = r.determinize()
+        rdr = dr.reverse()
+        drdr = rdr.determinize()
+        return drdr
+
     @property
     def start_state(self):
         return self._start_state
@@ -80,20 +112,8 @@ class DFA(NFA):
         self._accept_states = value
 
 
-class NFA:
-    class TransitionFunction:
-        def __init__(self):
-            self.__data = {}
-
-        def __getitem__(self, item):
-            if item in self.__data:
-                return self.__data[item]
-            else:
-                return set()
-
-        def __contains__(self, item):
-            return item in self.__data
-
+class NFA(DFA):
+    class TransitionFunction(DFA.TransitionFunction):
         def add(self, transition):
             state, symbol, next_state = transition.split('>')
             if state not in self.__data:
@@ -103,14 +123,8 @@ class NFA:
             self.__data[state][symbol].add(next_state)
 
     def __init__(self):
-        self.states = set()
-        self._start_state = None
-        self.alphabet = {"e"}
+        super().__init__()
         self.transition_function = self.TransitionFunction()
-        self._accept_states = None
-
-    def __getitem__(self, item: str) -> dict[str, set]:
-        return self.transition_function[item]
 
     def update_transition(self, transitions_input: list[str]):
         for transition in transitions_input:
@@ -175,31 +189,11 @@ class NFA:
 
         return any(state in self._accept_states for state in current_states)
 
-    @property
-    def start_state(self):
-        return self._start_state
-
-    @property
-    def accept_states(self):
-        return self._accept_states
-
-    @start_state.setter
-    def start_state(self, value):
-        if value is not None:
-            self.states.add(value)
-        self._start_state = value
-
-    @accept_states.setter
-    def accept_states(self, value):
-        if value is not None:
-            self.states.update(value)
-        self._accept_states = value
-
 
 class eNFA(NFA):
     def __init__(self):
         super().__init__()
-        self.epsilon = 'e'
+        self.epsilon = 'eps'
 
     def add_epsilon_transition(self, state_from, state_to):
         self.add_transition(f"{state_from}>{self.epsilon}>{state_to}")
@@ -210,11 +204,59 @@ class eNFA(NFA):
 
         while stack:
             state = stack.pop()
-            for next_state in self.transition_function[state].get(self.epsilon, []):
+            if self.epsilon not in self.transition_function[state]:
+                continue
+            for next_state in self.transition_function[state][self.epsilon]:
                 if next_state not in closure:
                     closure.add(next_state)
                     stack.append(next_state)
 
         return closure
 
+    def add_transition(self, transition: str):
+        state, symbol, next_state = transition.split('>')
+        self.states.add(state)
+        self.states.add(next_state)
+        if symbol != "eps":
+            self.alphabet.add(symbol)
+        self.transition_function.add(transition)
 
+    def recognize(self, word):
+        current_states = self.epsilon_closure({self._start_state})
+
+        for symbol in word:
+            next_states = set()
+            for state in current_states:
+                if symbol in self.transition_function[state]:
+                    next_states.update(self.transition_function[state][symbol])
+                if self.epsilon in self.transition_function[state]:
+                    next_states.update(self.transition_function[state][self.epsilon])
+            current_states = self.epsilon_closure(next_states)
+
+            if not current_states:
+                return False
+
+        return any(state in self._accept_states for state in current_states)
+
+    def eliminate_epsilon(self):
+        nfa = NFA()
+        nfa.start_state = self.start_state
+        nfa.accept_states = set()
+        for state in self.states:
+            orbit = self.epsilon_closure({state})
+            for satellite in orbit:
+                for symbol in self.transition_function[satellite]:
+                    if symbol == self.epsilon:
+                        continue
+                    next_states = self.transition_function[satellite][symbol]
+                    for next_state in next_states:
+                        nfa.add_transition(f"{state}>{symbol}>{next_state}")
+            if orbit & self.accept_states != set():
+                nfa.accept_states |= orbit
+
+        return nfa
+
+    def determinize(self):
+        nfa = self.eliminate_epsilon()
+        dfa = nfa.determinize()
+        return dfa
