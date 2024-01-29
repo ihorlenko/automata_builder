@@ -1,5 +1,26 @@
+from functools import reduce
+
+
 class AutomatonInputError(Exception):
     pass
+
+
+class State:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+    def __eq__(self, other):
+        if isinstance(other, State):
+            return self.name == other.name
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return reduce(lambda x, y: x * y, list(map(ord, self.name)))
+
 
 class DFA:
     class TransitionFunction:
@@ -23,21 +44,24 @@ class DFA:
 
         def add(self, transition):
             state, symbol, next_state = transition.split('>')
-            if state not in self.__data:
-                self.__data[state] = {}
-            if symbol in self.__data[state]:
+            if State(state) not in self.__data:
+                self.__data[State(state)] = {}
+            if symbol in self.__data[State(state)]:
                 raise AutomatonInputError("DFA mustn't contain non-deterministic transitions")
-            self.__data[state][symbol] = next_state
+            self.__data[State(state)][symbol] = State(next_state)
 
     def __init__(self):
         self.states = set()
-        self._start_state = None
+        self.start_state = None
         self.alphabet = set()
         self.transition_function = self.TransitionFunction()
-        self._accept_states = None
+        self.accept_states = None
 
     def __getitem__(self, item: str) -> dict[str, str]:
         return self.transition_function[item]
+
+    def __len__(self):
+        return len(self.states)
 
     def __repr__(self):
         return f"{type(self)}\n" \
@@ -53,8 +77,8 @@ class DFA:
 
     def add_transition(self, transition: str):
         state, symbol, next_state = transition.split('>')
-        self.states.add(state)
-        self.states.add(next_state)
+        self.states.add(State(state))
+        self.states.add(State(next_state))
         self.alphabet.add(symbol)
         self.transition_function.add(transition)
 
@@ -74,7 +98,7 @@ class DFA:
 
         terminal_state = f"q{len(self.states)}"
         enfa.start_state = terminal_state
-        enfa.accept_states = {self.start_state}
+        enfa._accept_states = {self.start_state}
 
         for state in self.states:
             for symbol, next_state in self.transition_function[state].items():
@@ -102,25 +126,25 @@ class DFA:
     @start_state.setter
     def start_state(self, value):
         if value is not None:
-            self.states.add(value)
-        self._start_state = value
+            self.states.add(State(value))
+            self._start_state = State(value)
 
     @accept_states.setter
     def accept_states(self, value):
         if value is not None:
-            self.states.update(value)
-        self._accept_states = value
+            self.states.update(set(map(State, value)))
+            self._accept_states = set(map(State, value))
 
 
 class NFA(DFA):
     class TransitionFunction(DFA.TransitionFunction):
         def add(self, transition):
             state, symbol, next_state = transition.split('>')
-            if state not in self.__data:
-                self.__data[state] = {}
-            if symbol not in self.__data[state]:
-                self.__data[state][symbol] = set()
-            self.__data[state][symbol].add(next_state)
+            if State(state) not in self.__data:
+                self.__data[State(state)] = {}
+            if symbol not in self.__data[State(state)]:
+                self.__data[State(state)][symbol] = set()
+            self.__data[State(state)][symbol].add(State(next_state))
 
     def __init__(self):
         super().__init__()
@@ -132,18 +156,18 @@ class NFA(DFA):
 
     def add_transition(self, transition: str):
         state, symbol, next_state = transition.split('>')
-        self.states.add(state)
-        self.states.add(next_state)
+        self.states.add(State(state))
+        self.states.add(State(next_state))
         self.alphabet.add(symbol)
         self.transition_function.add(transition)
 
     def determinize(self):
         dfa = DFA()
-        dfa.alphabet = self.alphabet - {"e"}
+        dfa.alphabet = self.alphabet - {"eps"}
 
         initial_state = frozenset([self._start_state])
-        dfa.start_state = ",".join(list(initial_state))
-        dfa.states.add(",".join(list(initial_state)))
+        dfa.start_state = ",".join(list(str(initial_state)))
+        dfa.states.add(",".join(list(str(initial_state))))
 
         unprocessed_states = {initial_state}
 
@@ -159,12 +183,12 @@ class NFA(DFA):
                 if not next_states_raw:
                     continue
 
-                next_state = ",".join(list(next_states_raw))
-                if next_state not in dfa.states:
-                    dfa.states.add(next_state)
+                next_state = ",".join(list(next_states_raw))  # !!
+                if State(next_state) not in dfa.states:
+                    dfa.states.add(State(next_state))
                     unprocessed_states.add(frozenset(next_states_raw))
 
-                transition = f"{','.join(list(current_state))}>{symbol}>{next_state}"
+                transition = f"{','.join(list(str(current_state)))}>{symbol}>{next_state}"
                 dfa.add_transition(transition)
 
         dfa.accept_states = set()
@@ -215,8 +239,8 @@ class eNFA(NFA):
 
     def add_transition(self, transition: str):
         state, symbol, next_state = transition.split('>')
-        self.states.add(state)
-        self.states.add(next_state)
+        self.states.add(State(state))
+        self.states.add(State(next_state))
         if symbol != "eps":
             self.alphabet.add(symbol)
         self.transition_function.add(transition)
