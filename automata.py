@@ -1,6 +1,7 @@
 class AutomatonInputError(Exception):
     pass
 
+
 class DFA:
     class TransitionFunction:
         def __init__(self):
@@ -47,6 +48,9 @@ class DFA:
                f"Accept states: {self._accept_states}\n" \
                f"Transition function: \n{self.transition_function}"
 
+    def __len__(self):
+        return len(self.states)
+
     def update_transition(self, transitions_input: list[str]):
         for transition in transitions_input:
             self.add_transition(transition)
@@ -83,6 +87,69 @@ class DFA:
                 enfa.add_epsilon_transition(terminal_state, state)
 
         return enfa
+
+    def union(self, other):
+        enfa = eNFA()
+        enfa._start_state = f"q{len(self) + len(other)}"
+        enfa.alphabet = self.alphabet.union(other.alphabet)
+        enfa._accept_states = self._accept_states.union(other._accept_states)
+
+        enfa.add_epsilon_transition(enfa._start_state, self._start_state)
+        enfa.add_epsilon_transition(enfa._start_state, other._start_state)
+
+        for state in self.states:
+            for symbol, next_state in self.transition_function[state].items():
+                transition_raw = f"{state}>{symbol}>{next_state}"
+                enfa.add_transition(transition_raw)
+        for state in other.states:
+            for symbol, next_state in other.transition_function[state].items():
+                transition_raw = f"{state}>{symbol}>{next_state}"
+                enfa.add_transition(transition_raw)
+
+        return enfa.determinize()
+
+    def disjoint(self):
+        dfa = self
+        dfa._accept_states = self.states - self._accept_states
+        return dfa
+
+    def intersection(self, other):
+        return (self.disjoint().union(other.disjoint)).disjoint()
+
+    def concatenation(self, other):
+        enfa = eNFA()
+        enfa._start_state = self._start_state
+        enfa._accept_states = other._accept_states
+        enfa.alphabet = self.alphabet.union(other.alphabet)
+
+        for state in self._accept_states:
+            enfa.add_epsilon_transition(state, other._start_state)
+
+        for state in self.states:
+            for symbol, next_state in self.transition_function[state].items():
+                transition_raw = f"{state}>{symbol}>{next_state}"
+                enfa.add_transition(transition_raw)
+        for state in other.states:
+            for symbol, next_state in other.transition_function[state].items():
+                transition_raw = f"{state}>{symbol}>{next_state}"
+                enfa.add_transition(transition_raw)
+
+        return enfa.determinize()
+
+    def kleene_star(self):
+        enfa = eNFA()
+        enfa.alphabet = self.alphabet
+        enfa._accept_states = self._accept_states
+        enfa._start_state = f"q{len(self)}"
+        enfa.add_epsilon_transition(enfa._start_state, self._start_state)
+        for state in self._accept_states:
+            enfa.add_epsilon_transition(state, self._start_state)
+        for state in self.states:
+            for symbol, next_state in self.transition_function[state].items():
+                transition_raw = f"{state}>{symbol}>{next_state}"
+                enfa.add_transition(transition_raw)
+
+        return enfa.determinize()
 
     def minimize(self):
         r = self.reverse()
@@ -229,8 +296,9 @@ class eNFA(NFA):
             for state in current_states:
                 if symbol in self.transition_function[state]:
                     next_states.update(self.transition_function[state][symbol])
-                if self.epsilon in self.transition_function[state]:
-                    next_states.update(self.transition_function[state][self.epsilon])
+                # if self.epsilon in self.transition_function[state]:
+                #     next_states.update(self.transition_function[state][self.epsilon])
+            next_states.update(next_states)
             current_states = self.epsilon_closure(next_states)
 
             if not current_states:
