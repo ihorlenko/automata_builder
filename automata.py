@@ -27,7 +27,8 @@ class DFA:
             if state not in self.__data:
                 self.__data[state] = {}
             if symbol in self.__data[state]:
-                raise AutomatonInputError("DFA mustn't contain non-deterministic transitions")
+                raise AutomatonInputError("DFA mustn't contain"
+                                          " non-deterministic transitions")
             self.__data[state][symbol] = next_state
 
     def __init__(self):
@@ -296,8 +297,6 @@ class eNFA(NFA):
             for state in current_states:
                 if symbol in self.transition_function[state]:
                     next_states.update(self.transition_function[state][symbol])
-                # if self.epsilon in self.transition_function[state]:
-                #     next_states.update(self.transition_function[state][self.epsilon])
             next_states.update(next_states)
             current_states = self.epsilon_closure(next_states)
 
